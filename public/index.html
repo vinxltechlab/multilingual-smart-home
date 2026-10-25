@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multilingual Smart Home</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #edf2f8;
+      color: #17263c;
+      padding: 18px;
+      margin: 0;
+    }
+
+    main {
+      max-width: 480px;
+      margin: 20px auto;
+      padding: 22px;
+      background: white;
+      border-radius: 18px;
+      box-shadow: 0 4px 20px #0001;
+    }
+
+    h1 { font-size: 25px; }
+
+    label {
+      display: block;
+      margin-top: 20px;
+      margin-bottom: 8px;
+      font-weight: bold;
+    }
+
+    select, button {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 16px;
+      margin: 5px 0;
+      cursor: pointer;
+    }
+
+    select { border: 1px solid #bbb; }
+
+    button {
+      border: 0;
+      background: #1769aa;
+      color: white;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .controls button { background: #203c5d; }
+
+    #heard, #status {
+      background: #f1f5f9;
+      padding: 13px;
+      border-radius: 8px;
+      overflow-wrap: anywhere;
+    }
+
+    #status[role="alert"] {
+      background: #fff0f0;
+      color: #9b1c1c;
+    }
+  </style>
+</head>
+
+<body>
+<main>
+  <h1>🏠 Multilingual Smart Home</h1>
+  <p>Control your home using your phone microphone.</p>
+
+  <label for="language">Choose your language</label>
+  <select id="language">
+    <option value="en-IN">English</option>
+    <option value="ml-IN">Malayalam</option>
+    <option value="hi-IN">Hindi</option>
+  </select>
+
+  <button id="listen" type="button">🎙️ Start Voice Command</button>
+  <button id="stop" type="button">Stop Listening</button>
+
+  <label for="heard">Recognized speech</label>
+  <div id="heard" aria-live="polite">No command yet.</div>
+
+  <label>Appliance controls</label>
+  <div class="controls">
+    <button type="button" data-device="light" data-state="on">💡 Light ON</button>
+    <button type="button" data-device="light" data-state="off">Light OFF</button>
+    <button type="button" data-device="fan" data-state="on">🌀 Fan ON</button>
+    <button type="button" data-device="fan" data-state="off">Fan OFF</button>
+    <button type="button" data-device="buzzer" data-state="on">🔔 Buzzer ON</button>
+    <button type="button" data-device="buzzer" data-state="off">Buzzer OFF / Mute</button>
+  </div>
+
+  <label for="status">System status</label>
+  <div id="status" role="status" aria-live="polite">Website ready.</div>
+</main>
+
+<script>
+"use strict";
+
+const heard = document.getElementById("heard");
+const statusBox = document.getElementById("status");
+const language = document.getElementById("language");
+const listenButton = document.getElementById("listen");
+const stopButton = document.getElementById("stop");
+const controlButtons = [...document.querySelectorAll("[data-device]")];
+
+const SpeechAPI =
+  window.SpeechRecognition || window.webkitSpeechRecognition;
+
+const commands = {
+  "en-IN": {
+    light_on: ["light on", "turn on the light", "switch on the light"],
+    light_off: ["light off", "turn off the light", "switch off the light"],
+    fan_on: ["fan on", "turn on the fan", "switch on the fan"],
+    fan_off: ["fan off", "turn off the fan", "switch off the fan"],
+    buzzer_on: ["sound on", "make a sound", "alarm on", "start alarm"],
+    buzzer_off: ["sound off", "stop sound", "alarm off", "stop alarm"]
+  },
+  "ml-IN": {
+    light_on: ["ലൈറ്റ് ഓൺ", "വെളിച്ചം വരട്ടെ", "ലൈറ്റ് ഇടുക"],
+    light_off: ["ലൈറ്റ് ഓഫ്", "വെളിച്ചം വേണ്ട", "ലൈറ്റ് അണയ്ക്കുക"],
+    fan_on: ["ഫാൻ ഓൺ", "ഫാൻ ഇടുക"],
+    fan_off: ["ഫാൻ ഓഫ്", "ഫാൻ അണയ്ക്കുക"],
+    buzzer_on: ["ശബ്ദം ഓൺ", "ശബ്ദം ഇടുക", "അലാറം ഓൺ", "അലാറം ഇടുക"],
+buzzer_off: ["ശബ്ദം ഓഫ്", "ശബ്ദം നിർത്തുക", "അലാറം ഓഫ്", "അലാറം നിർത്തുക"]
+  },
+  "hi-IN": {
+    light_on: ["लाइट चालू", "बत्ती चालू"],
+    light_off: ["लाइट बंद", "बत्ती बंद"],
+    fan_on: ["पंखा चालू", "फैन चालू"],
+    fan_off: ["पंखा बंद", "फैन बंद"],
+    buzzer_on: ["आवाज़ चालू", "आवाज़ करो", "अलार्म चालू", "अलार्म बजाओ"],
+    buzzer_off: ["आवाज़ बंद", "आवाज़ रोक दो", "अलार्म बंद", "अलार्म रोक दो"]
+  }
+};
+
+const actions = {
+  light_on:  { label: "Light ON", device: "light", value: 1 },
+  light_off: { label: "Light OFF", device: "light", value: 0 },
+  fan_on:    { label: "Fan ON", device: "fan", value: 1 },
+  fan_off:   { label: "Fan OFF", device: "fan", value: 0 },
+  buzzer_on: { label: "Buzzer ON", device: "buzzer", value: 1 },
+  buzzer_off:{ label: "Buzzer OFF / Mute", device: "buzzer", value: 0 }
+};
+
+let recognition = null;
+let listening = false;
+let requestInProgress = false;
+let audioContext = null;
+
+// Short browser beep after a successful API response.
+async function playBeep() {
+  try {
+    const AudioContextClass =
+      window.AudioContext || window.webkitAudioContext;
+
+    if (!AudioContextClass) return;
+
+    if (!audioContext || audioContext.state === "closed") {
+      audioContext = new AudioContextClass();
+    }
+
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const now = audioContext.currentTime;
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, now);
+
+    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+
+    oscillator.start(now);
+    oscillator.stop(now + 0.18);
+  } catch (error) {
+    console.warn("Browser beep unavailable:", error);
+  }
+}
+
+function findCommand(text) {
+  const normalizedText = text.toLocaleLowerCase().trim();
+  const selectedCommands = commands[language.value];
+
+  for (const [command, phrases] of Object.entries(selectedCommands)) {
+    if (phrases.some(phrase =>
+      normalizedText.includes(phrase.toLocaleLowerCase())
+    )) {
+      return command;
+    }
+  }
+
+  return null;
+}
+
+async function handleCommand(command) {
+  const action = actions[command];
+
+  if (!action || requestInProgress) return;
+
+  requestInProgress = true;
+  controlButtons.forEach(button => button.disabled = true);
+  listenButton.disabled = true;
+
+  statusBox.removeAttribute("role");
+  statusBox.textContent = "Sending " + action.label + "...";
+
+  try {
+    const response = await fetch("/api/" + action.device, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: action.value })
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok || result.success !== true) {
+      throw new Error(
+        result.error || "Request failed (HTTP " + response.status + ")"
+      );
+    }
+
+    statusBox.textContent = action.label + " command accepted by the server.";
+    await playBeep();
+  } catch (error) {
+    statusBox.textContent =
+      "Could not control " + action.label + ". " +
+      error.message + ". Check your internet and Worker connection.";
+  } finally {
+    requestInProgress = false;
+    controlButtons.forEach(button => button.disabled = false);
+    listenButton.disabled = false;
+  }
+}
+
+listenButton.addEventListener("click", async () => {
+  // A click also helps browsers permit audio playback.
+  try {
+    const AudioContextClass =
+      window.AudioContext || window.webkitAudioContext;
+
+    if (AudioContextClass) {
+      if (!audioContext || audioContext.state === "closed") {
+        audioContext = new AudioContextClass();
+      }
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
+    }
+  } catch (_) {
+    // Voice commands can still be used if audio is unavailable.
+  }
+
+  if (!SpeechAPI) {
+    statusBox.textContent =
+      "Speech recognition is unsupported in this browser. Try updated Chrome.";
+    return;
+  }
+
+  if (listening || requestInProgress) return;
+
+  recognition = new SpeechAPI();
+  recognition.lang = language.value;
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => {
+    listening = true;
+    statusBox.textContent = "Listening. Speak one command.";
+  };
+
+  recognition.onresult = event => {
+    const spokenText = event.results[0][0].transcript;
+    heard.textContent = spokenText;
+
+    const command = findCommand(spokenText);
+
+    if (command) {
+      handleCommand(command);
+    } else {
+      statusBox.textContent =
+        "Command not matched. Try a supported phrase in the selected language.";
+    }
+  };
+
+  recognition.onerror = event => {
+    statusBox.textContent = "Voice recognition error: " + event.error;
+  };
+
+  recognition.onend = () => {
+    listening = false;
+  };
+
+  try {
+    recognition.start();
+  } catch (error) {
+    listening = false;
+    statusBox.textContent = "Could not start listening: " + error.message;
+  }
+});
+
+stopButton.addEventListener("click", () => {
+  if (recognition && listening) {
+    recognition.stop();
+  }
+
+  listening = false;
+  statusBox.textContent = "Voice listening stopped.";
+});
+
+language.addEventListener("change", () => {
+  if (recognition && listening) {
+    recognition.stop();
+  }
+
+  listening = false;
+  statusBox.textContent = "Language changed. Start voice command again.";
+});
+
+controlButtons.forEach(button => {
+  button.addEventListener("click", () => {
+    const command = button.dataset.device + "_" + button.dataset.state;
+    handleCommand(command);
+  });
+});
+</script>
+</body>
+</html>
